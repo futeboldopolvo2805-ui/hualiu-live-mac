@@ -258,14 +258,21 @@
   function applyTransform(el, animate) {
     const s = settings();
     const [z0, z1] = ordered(s.zoomMin, s.zoomMax);
-    const zoom = rand(z0, z1) / 100;
-    const mirror = Math.random() < 0.5 ? -1 : 1;
-    const safe = Math.max(0, (zoom - 1) * 140);
-    const x = rand(-safe, safe), y = rand(-safe, safe);
+    const parent = el.parentElement;
+    const w = (parent && parent.clientWidth) || el.clientWidth || 540;
+    const h = (parent && parent.clientHeight) || el.clientHeight || 960;
+    let zoom = Number(el.dataset.zoom || 0);
+    if (!animate || !zoom) {
+      zoom = Math.max(1.12, rand(Math.max(z0, 112), Math.max(z1, 112)) / 100);
+      el.dataset.zoom = String(zoom);
+    }
+    const maxX = ((zoom - 1) / 2) * w * 0.7;
+    const maxY = ((zoom - 1) / 2) * h * 0.7;
+    const x = rand(-maxX, maxX), y = rand(-maxY, maxY);
     const [m0, m1] = ordered(s.moveMin, s.moveMax);
     const dur = rand(m0, m1);
     el.style.transition = animate ? "transform " + dur + "s ease-in-out" : "none";
-    el.style.transform = "translate(" + x + "px," + y + "px) scale(" + (mirror * zoom) + "," + zoom + ")";
+    el.style.transform = "translate(" + x + "px," + y + "px) scale(" + zoom + ")";
     return dur;
   }
 
