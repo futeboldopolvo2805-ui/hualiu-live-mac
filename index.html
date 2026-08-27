@@ -94,10 +94,37 @@
   body.capture #fab { display: flex; align-items: center; }
   body.capture #stageWrap { width: 100vw; height: 100dvh; }
   body.capture { overflow: hidden; }
+  html.captura, html.captura body {
+    overflow: hidden !important;
+    background: #000 !important;
+    width: 100% !important;
+    height: 100% !important;
+  }
+  html.captura #console,
+  html.captura #fab { display: none !important; }
+  html.captura #app { display: block !important; min-height: 100% !important; }
+  html.captura #stageWrap,
+  html.captura #stage {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-height: none !important;
+    max-width: none !important;
+  }
+  html.captura video.player {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+    object-position: center !important;
+  }
   @media (max-width: 900px) {
     #app { flex-direction: column; }
     #stageWrap { width: 100%; height: 38vh; max-height: 340px; }
     body.capture #stageWrap { height: 100dvh; max-height: none; }
+    html.captura #stageWrap { height: 100% !important; max-height: none !important; }
   }
 </style>
 </head>
@@ -133,14 +160,14 @@
       <button class="btn" id="resume" disabled>Continuar</button>
       <button class="btn" id="next" disabled>Próximo</button>
       <button class="btn btn-danger" id="stop" disabled>Parar</button>
-      <button class="btn" id="hide">Ocultar</button>
+      <button class="btn" id="hide">Aba captura</button>
     </div>
-    <button class="btn" id="capture" style="margin-bottom:8px">Abrir modo captura 9:16</button>
+    <button class="btn btn-primary" id="capture" style="margin-bottom:8px">Abrir aba de captura</button>
     <button class="btn" id="demo">Prévia de demonstração</button>
     <div class="warn">
       <b>LIVE Studio · Mac</b>
-      No TikTok LIVE Studio ou OBS, adicione Captura de janela e escolha a janela deste player
-      (título PLAYER 华流 · CAPTURA). Não minimize. Use MP4 H.264.
+      Clique em <b>Abrir aba de captura</b>. O player roda numa aba só dele
+      (título PLAYER 华流 · CAPTURA). Capture essa aba no LIVE Studio. Use MP4 H.264.
     </div>
     <div class="checks">
       <label><input type="checkbox" id="mute" checked /> Sem áudio</label>
@@ -195,6 +222,7 @@
   let sceneTimer = 0, moveTimer = 0, watchdog = 0;
   const urls = [];
   const demoStops = [];
+  let lastFiles = [];
 
   function settings() {
     return {
@@ -416,6 +444,7 @@
   function setFiles(files) {
     stop();
     clearUrls();
+    lastFiles = files;
     playlist = files.map((file, i) => {
       const url = URL.createObjectURL(file);
       urls.push(url);
@@ -467,22 +496,61 @@
   }
 
   function setCapture(on) {
-    document.body.classList.toggle("capture", on);
-    document.title = on ? "PLAYER 华流 · CAPTURA" : "华流LIVE 控制台";
-    $("fab").style.display = on ? "flex" : "none";
+    if (on) { openCaptureTab(); return; }
+    document.body.classList.remove("capture");
+    document.title = "华流LIVE 控制台";
+    $("fab").style.display = "none";
+  }
+
+  const isCaptura = location.hash.indexOf("captura") >= 0;
+  let captureWin = null;
+  let remote = false;
+  const ch = typeof BroadcastChannel === "function" ? new BroadcastChannel("hualiu-live-v1") : null;
+
+  function openCaptureTab() {
+    const base = location.href.split("#")[0];
+    const url = base + "#captura";
+    const w = window.open(url, "hualiu-captura", "width=540,height=960,left=80,top=40,menubar=no,toolbar=no,location=no,status=no,scrollbars=no,resizable=yes");
+    if (!w) {
+      setStatus("O Chrome bloqueou a aba. Permita pop-ups e clique de novo.");
+      return;
+    }
+    captureWin = w;
+    remote = true;
+    try { w.resizeTo(540, 960); w.focus(); } catch (e) {}
+    setStatus("Player aberto na aba PLAYER 华流 · CAPTURA");
+  }
+
+  function pumpFiles(autoplay) {
+    if (!captureWin || captureWin.closed) return;
+    if (!captureWin || captureWin.closed || !lastFiles.length) return;
+    try { captureWin.postMessage({ t: "files", files: lastFiles, autoplay: !!autoplay }, "*"); } catch (e) {}
   }
 
   $("pick").onclick = () => $("file").click();
   $("file").onchange = (e) => { setFiles([...e.target.files]); e.target.value = ""; };
-  $("start").onclick = start;
-  $("pause").onclick = pause;
-  $("resume").onclick = resume;
-  $("next").onclick = () => { if (running && !paused) switchScene(); };
-  $("stop").onclick = stop;
-  $("hide").onclick = () => setCapture(true);
-  $("capture").onclick = () => setCapture(true);
+  $("start").onclick = () => {
+    if (remote && captureWin && !captureWin.closed) {
+      stop();
+      pumpFiles(true);
+      if (ch) ch.postMessage({ t: "cmd", cmd: "start" });
+      return;
+    }
+    start();
+  };
+  $("pause").onclick = () => { if (ch && remote) ch.postMessage({ t: "cmd", cmd: "pause" }); else pause(); };
+  $("resume").onclick = () => { if (ch && remote) ch.postMessage({ t: "cmd", cmd: "resume" }); else resume(); };
+  $("next").onclick = () => { if (ch && remote) ch.postMessage({ t: "cmd", cmd: "next" }); else if (running && !paused) switchScene(); };
+  $("stop").onclick = () => { if (ch && remote) ch.postMessage({ t: "cmd", cmd: "stop" }); stop(); };
+  $("hide").onclick = openCaptureTab;
+  $("capture").onclick = openCaptureTab;
   $("fab").onclick = () => setCapture(false);
   $("demo").onclick = () => {
+    if (remote && captureWin && !captureWin.closed && ch) {
+      stop();
+      ch.postMessage({ t: "cmd", cmd: "demo" });
+      return;
+    }
     stop(); clearUrls();
     playlist = [makeDemo("素材 01  ·  seda", 350, 1), makeDemo("素材 02  ·  ouro", 28, 2), makeDemo("素材 03  ·  noite", 210, 3)];
     $("count").textContent = "3 materiais · demonstração";
@@ -504,7 +572,7 @@
   window.addEventListener("keydown", (e) => {
     const tag = (e.target && e.target.tagName) || "";
     if (tag === "INPUT" || tag === "TEXTAREA") return;
-    if (e.key === "F2") { e.preventDefault(); setCapture(!document.body.classList.contains("capture")); }
+    if (e.key === "F2") { e.preventDefault(); if (!isCaptura) openCaptureTab(); }
     if (e.key === " " || e.code === "Space") {
       e.preventDefault();
       if (paused) resume(); else if (running) pause();
@@ -515,11 +583,72 @@
       if (document.fullscreenElement) document.exitFullscreen();
       else document.documentElement.requestFullscreen();
     }
-    if (e.key === "Escape") {
-      if (document.fullscreenElement) document.exitFullscreen();
-      else setCapture(false);
-    }
   });
+
+  if (ch) {
+    ch.onmessage = (ev) => {
+      const msg = ev.data;
+      if (!msg || typeof msg !== "object") return;
+      if (!isCaptura) {
+        if (msg.t === "ready") {
+          remote = true;
+          if (ch) ch.postMessage({ t: "settings", settings: settings() });
+          const demoOn = playlist.some((p) => p.stream);
+          if (demoOn) ch.postMessage({ t: "cmd", cmd: "demo" });
+          else {
+            pumpFiles(running);
+            if (running) ch.postMessage({ t: "cmd", cmd: "start" });
+          }
+        }
+        if (msg.t === "capture-closed") remote = false;
+        if (msg.t === "status") setStatus(msg.status);
+        return;
+      }
+      if (msg.t === "settings" && msg.settings) {
+        const s = msg.settings;
+        if ("mute" in s) $("mute").checked = !!s.mute;
+        if ("randomStart" in s) $("randomStart").checked = !!s.randomStart;
+        if ("avoidRepeat" in s) $("avoidRepeat").checked = !!s.avoidRepeat;
+        if ("overlayEnabled" in s) $("overlayEnabled").checked = !!s.overlayEnabled;
+        ["clipMin","clipMax","zoomMin","zoomMax","moveMin","moveMax"].forEach((k) => {
+          if (k in s && $(k)) $(k).value = s[k];
+        });
+        if ("overlayChance" in s) { $("overlayChance").value = s.overlayChance; $("chanceLabel").textContent = s.overlayChance + "%"; }
+        if ("overlayOpacity" in s) { $("overlayOpacity").value = s.overlayOpacity; $("opacityLabel").textContent = s.overlayOpacity + "%"; }
+      }
+      if (msg.t === "cmd") {
+        if (msg.cmd === "demo") {
+          stop(); clearUrls();
+          playlist = [makeDemo("素材 01  ·  seda", 350, 1), makeDemo("素材 02  ·  ouro", 28, 2), makeDemo("素材 03  ·  noite", 210, 3)];
+          start();
+        }
+        if (msg.cmd === "start") start();
+        if (msg.cmd === "pause") pause();
+        if (msg.cmd === "resume") resume();
+        if (msg.cmd === "next" && running && !paused) switchScene();
+        if (msg.cmd === "stop") stop();
+      }
+    };
+  }
+
+  window.addEventListener("message", (ev) => {
+    const data = ev.data;
+    if (!isCaptura || !data || data.t !== "files" || !data.files) return;
+    setFiles(data.files);
+    if (data.autoplay) start();
+  });
+
+  if (isCaptura) {
+    document.documentElement.classList.add("captura");
+    document.title = "PLAYER 华流 · CAPTURA";
+    $("empty").querySelectorAll("p")[1].textContent = "Aguardando o console. Clique em Começar na outra janela.";
+    try { if (window.opener) window.resizeTo(540, 960); } catch (e) {}
+    if (ch) {
+      ch.postMessage({ t: "ready" });
+      ch.postMessage({ t: "capture-open" });
+    }
+    window.addEventListener("beforeunload", () => { try { ch && ch.postMessage({ t: "capture-closed" }); } catch (e) {} });
+  }
 
   setButtons();
 })();
