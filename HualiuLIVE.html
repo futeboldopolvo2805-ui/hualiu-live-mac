@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>华流LIVE 控制台</title>
+<style>
+  :root {
+    --bg: #0b0b0f;
+    --surface: #161823;
+    --elevated: #1c1e2a;
+    --fg: #f5f5f7;
+    --muted: #a8a8b3;
+    --subtle: #6e6e7a;
+    --primary: #fe2c55;
+    --border: #2e3040;
+    --warn: #e8d5a3;
+    --warn-bg: #241c10;
+    --warn-border: #3d3420;
+    --danger-bg: #3a1520;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font-family: "PingFang SC", "Noto Sans SC", "Hiragino Sans GB", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased; }
+  button:not(:disabled) { cursor: pointer; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  #app { display: flex; min-height: 100dvh; }
+  #stageWrap {
+    position: relative; background: #000; display: flex; align-items: center; justify-content: center;
+    width: min(42vw, 540px); height: 100dvh; flex-shrink: 0; overflow: hidden;
+  }
+  #stage { position: relative; width: 100%; height: 100%; background: #000; overflow: hidden; }
+  video.player {
+    position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    transform-origin: center center; pointer-events: none; opacity: 0;
+  }
+  #empty {
+    position: absolute; inset: 0; z-index: 30; display: flex; align-items: center; justify-content: center;
+    background: var(--bg); padding: 28px; text-align: center;
+  }
+  #empty.hidden { display: none; }
+  .live-pill {
+    display: inline-flex; align-items: center; gap: 8px; background: rgba(254,44,85,.2);
+    border-radius: 999px; padding: 6px 12px; color: var(--primary); font-size: 12px; font-weight: 700;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 99px; background: var(--primary); }
+  #console {
+    flex: 1; min-width: 0; background: var(--surface); overflow-y: auto; padding: 20px 20px 32px;
+  }
+  .brand {
+    display: inline-flex; align-items: center; gap: 8px; background: var(--primary); color: #fff;
+    border-radius: 12px; padding: 4px 10px; font-size: 11px; font-weight: 700;
+  }
+  h1 { font-size: 24px; margin: 12px 0 8px; letter-spacing: -.02em; }
+  h1 span { color: var(--primary); }
+  .desc { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0 0 16px; }
+  .btn {
+    border: 1px solid var(--border); background: var(--elevated); color: var(--fg);
+    border-radius: 8px; height: 44px; font-weight: 600; font-size: 13px;
+    display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%;
+  }
+  .btn:hover:not(:disabled) { border-color: rgba(254,44,85,.5); background: rgba(254,44,85,.1); }
+  .btn-primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .btn-primary:hover:not(:disabled) { filter: brightness(1.1); }
+  .btn-danger { background: var(--danger-bg); border-color: rgba(254,44,85,.4); color: var(--primary); }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin: 12px 0; }
+  .warn {
+    background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 10px;
+    padding: 12px; margin: 14px 0; font-size: 12px; line-height: 1.5;
+  }
+  .warn b { color: var(--warn); display: block; margin-bottom: 4px; }
+  .checks { background: var(--bg); border-radius: 10px; padding: 8px 10px; }
+  .checks label { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; }
+  input[type=checkbox] { accent-color: var(--primary); width: 16px; height: 16px; }
+  .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+  .fields label { font-size: 12px; color: var(--muted); display: block; }
+  .fields input[type=number] {
+    margin-top: 4px; height: 44px; width: 100%; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--fg); padding: 0 10px; font-size: 14px;
+  }
+  input[type=range] { width: 100%; accent-color: var(--primary); }
+  .pct { text-align: right; color: var(--primary); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .status { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 12px; font-size: 14px; }
+  .hint { color: var(--subtle); font-size: 11px; line-height: 1.5; margin-top: 14px; }
+  #file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+  #count { text-align: center; color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+  #fab {
+    display: none; position: fixed; top: 12px; right: 12px; z-index: 50;
+    height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--border);
+    background: rgba(22,24,35,.92); color: var(--fg); font-weight: 600;
+  }
+  body.capture #console, body.capture #fab.show-off { display: none; }
+  body.capture #fab { display: flex; align-items: center; }
+  body.capture #stageWrap { width: 100vw; height: 100dvh; }
+  body.capture { overflow: hidden; }
+  @media (max-width: 900px) {
+    #app { flex-direction: column; }
+    #stageWrap { width: 100%; height: 38vh; max-height: 340px; }
+    body.capture #stageWrap { height: 100dvh; max-height: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <section id="stageWrap">
+    <div id="stage">
+      <video id="mainA" class="player" playsinline muted></video>
+      <video id="overlayA" class="player" playsinline muted></video>
+      <video id="mainB" class="player" playsinline muted></video>
+      <video id="overlayB" class="player" playsinline muted></video>
+      <div id="empty">
+        <div>
+          <span class="live-pill"><span class="dot"></span>直播素材</span>
+          <p style="font-size:26px;font-weight:700;margin:14px 0 8px">华流LIVE 播放器</p>
+          <p style="color:var(--muted);font-size:14px">Escolha os vídeos no console e clique em Começar</p>
+          <p style="color:var(--subtle);font-size:12px;margin-top:10px">F2 console · espaço pausa · → troca · F11 tela cheia</p>
+          <p style="color:var(--subtle);font-size:11px;margin-top:18px;letter-spacing:.04em">PLAYER 华流 · CAPTURA</p>
+        </div>
+      </div>
+    </div>
+  </section>
+  <aside id="console">
+    <span class="brand"><span class="dot" style="background:#fff;width:7px;height:7px"></span>中式直播 · método</span>
+    <h1>华流LIVE <span>控制台</span></h1>
+    <p class="desc">Player local para TikTok LIVE Studio no Mac. Capture a janela <b>PLAYER 华流 · CAPTURA</b>.</p>
+    <input id="file" type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm" multiple />
+    <button class="btn btn-primary" id="pick">Selecionar vídeos</button>
+    <p id="count">Nenhum vídeo selecionado</p>
+    <div class="grid3">
+      <button class="btn btn-primary" id="start" disabled>Começar</button>
+      <button class="btn" id="pause" disabled>Pausar</button>
+      <button class="btn" id="resume" disabled>Continuar</button>
+      <button class="btn" id="next" disabled>Próximo</button>
+      <button class="btn btn-danger" id="stop" disabled>Parar</button>
+      <button class="btn" id="hide">Ocultar</button>
+    </div>
+    <button class="btn" id="capture" style="margin-bottom:8px">Abrir modo captura 9:16</button>
+    <button class="btn" id="demo">Prévia de demonstração</button>
+    <div class="warn">
+      <b>LIVE Studio · Mac</b>
+      No TikTok LIVE Studio ou OBS, adicione Captura de janela e escolha a janela deste player
+      (título PLAYER 华流 · CAPTURA). Não minimize. Use MP4 H.264.
+    </div>
+    <div class="checks">
+      <label><input type="checkbox" id="mute" checked /> Sem áudio</label>
+      <label><input type="checkbox" id="randomStart" checked /> Ponto aleatório</label>
+      <label><input type="checkbox" id="avoidRepeat" checked /> Evitar repetir em seguida</label>
+      <label><input type="checkbox" id="overlayEnabled" checked /> Sobreposição aleatória</label>
+    </div>
+    <p style="font-weight:600;margin:18px 0 10px">Trechos e 运镜</p>
+    <div class="fields">
+      <label>Trecho mín. (s)<input type="number" id="clipMin" value="12" /></label>
+      <label>Trecho máx. (s)<input type="number" id="clipMax" value="28" /></label>
+      <label>Zoom mín. (%)<input type="number" id="zoomMin" value="102" /></label>
+      <label>Zoom máx. (%)<input type="number" id="zoomMax" value="115" /></label>
+      <label>Movimento mín. (s)<input type="number" id="moveMin" value="4" /></label>
+      <label>Movimento máx. (s)<input type="number" id="moveMax" value="9" /></label>
+    </div>
+    <p style="color:var(--muted);font-size:12px;margin:16px 0 4px">Chance de sobreposição</p>
+    <input type="range" id="overlayChance" min="0" max="100" step="5" value="45" />
+    <p class="pct" id="chanceLabel">45%</p>
+    <p style="color:var(--muted);font-size:12px;margin:8px 0 4px">Opacidade máxima</p>
+    <input type="range" id="overlayOpacity" min="5" max="70" step="5" value="35" />
+    <p class="pct" id="opacityLabel">35%</p>
+    <p style="font-weight:600;margin:16px 0 8px">Status</p>
+    <div class="status" id="status">Selecione os vídeos primeiro</div>
+    <p class="hint">Atalhos: F2 console · espaço pausa · → troca · F11 tela cheia · Esc sai. Arraste vídeos para a tela preta.</p>
+  </aside>
+</div>
+<button id="fab">F2 console</button>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+  const rand = (a, b) => (b <= a ? a : a + Math.random() * (b - a));
+  const ordered = (a, b) => (a <= b ? [a, b] : [b, a]);
+  const num = (id, fallback) => {
+    const v = parseFloat($(id).value);
+    return Number.isFinite(v) ? v : fallback;
+  };
+
+  const slots = {
+    mainA: $("mainA"), overlayA: $("overlayA"),
+    mainB: $("mainB"), overlayB: $("overlayB"),
+  };
+  const mains = [slots.mainA, slots.mainB];
+  const overlays = [slots.overlayA, slots.overlayB];
+
+  let playlist = [];
+  let running = false, paused = false, activeSlot = -1, lastMainId = null;
+  let slotMain = [null, null];
+  let overlayTarget = [0, 0];
+  let opening = [false, false];
+  let sceneTimer = 0, moveTimer = 0, watchdog = 0;
+  const urls = [];
+  const demoStops = [];
+
+  function settings() {
+    return {
+      mute: $("mute").checked,
+      randomStart: $("randomStart").checked,
+      avoidRepeat: $("avoidRepeat").checked,
+      overlayEnabled: $("overlayEnabled").checked,
+      clipMin: num("clipMin", 12), clipMax: num("clipMax", 28),
+      zoomMin: num("zoomMin", 102), zoomMax: num("zoomMax", 115),
+      moveMin: num("moveMin", 4), moveMax: num("moveMax", 9),
+      overlayChance: Number($("overlayChance").value),
+      overlayOpacity: Number($("overlayOpacity").value),
+    };
+  }
+
+  function setStatus(text) { $("status").textContent = text; }
+  function setButtons() {
+    const has = playlist.length > 0;
+    $("start").disabled = !has || running;
+    $("pause").disabled = !running || paused;
+    $("resume").disabled = !running || !paused;
+    $("next").disabled = !running || paused;
+    $("stop").disabled = !running;
+  }
+
+  function stopMedia(el) {
+    try { el.pause(); } catch (e) {}
+    el.style.opacity = "0";
+    el.removeAttribute("src");
+    el.srcObject = null;
+    try { el.load(); } catch (e) {}
+  }
+
+  function pick(avoidId, avoidAlso) {
+    if (!playlist.length) return null;
+    if (playlist.length === 1) return playlist[0];
+    const s = settings();
+    for (let i = 0; i < 50; i++) {
+      const item = playlist[Math.floor(Math.random() * playlist.length)];
+      const blocked = s.avoidRepeat && item.id === avoidId;
+      if (!blocked && item.id !== avoidAlso) return item;
+    }
+    return playlist[0];
+  }
+
+  function load(el, item) {
+    el.style.opacity = "0";
+    if (item.stream) {
+      el.removeAttribute("src");
+      el.srcObject = item.stream;
+    } else {
+      el.srcObject = null;
+      el.src = item.url;
+    }
+    el.muted = true;
+    el.playsInline = true;
+    el.loop = !!item.stream;
+    el.play().catch(() => {});
+  }
+
+  function applyTransform(el, animate) {
+    const s = settings();
+    const [z0, z1] = ordered(s.zoomMin, s.zoomMax);
+    const zoom = rand(z0, z1) / 100;
+    const mirror = Math.random() < 0.5 ? -1 : 1;
+    const safe = Math.max(0, (zoom - 1) * 140);
+    const x = rand(-safe, safe), y = rand(-safe, safe);
+    const [m0, m1] = ordered(s.moveMin, s.moveMax);
+    const dur = rand(m0, m1);
+    el.style.transition = animate ? "transform " + dur + "s ease-in-out" : "none";
+    el.style.transform = "translate(" + x + "px," + y + "px) scale(" + (mirror * zoom) + "," + zoom + ")";
+    return dur;
+  }
+
+  function prepareOverlay(slot, main) {
+    const s = settings();
+    const overlay = overlays[slot];
+    const use = s.overlayEnabled && playlist.length > 1 && Math.random() * 100 < s.overlayChance;
+    if (!use) { stopMedia(overlay); overlayTarget[slot] = 0; return; }
+    const item = pick(null, main.id);
+    if (!item) { stopMedia(overlay); return; }
+    overlayTarget[slot] = rand(0.12, s.overlayOpacity / 100);
+    overlay.muted = true;
+    applyTransform(overlay, false);
+    load(overlay, item);
+  }
+
+  function switchScene() {
+    if (!running || paused || !playlist.length) return;
+    const nextSlot = activeSlot === 0 ? 1 : 0;
+    const item = pick(lastMainId);
+    if (!item) return;
+    slotMain[nextSlot] = item;
+    opening[nextSlot] = true;
+    prepareOverlay(nextSlot, item);
+    const main = mains[nextSlot];
+    main.muted = settings().mute;
+    applyTransform(main, false);
+    main.style.zIndex = 20;
+    overlays[nextSlot].style.zIndex = 21;
+    if (activeSlot >= 0) {
+      mains[activeSlot].style.zIndex = 10;
+      overlays[activeSlot].style.zIndex = 11;
+    }
+    setStatus("Preparando：" + item.name);
+    load(main, item);
+  }
+
+  function activateSlot(slot) {
+    if (!running || !opening[slot]) return;
+    opening[slot] = false;
+    const main = mains[slot], overlay = overlays[slot], item = slotMain[slot], old = activeSlot;
+    const s = settings();
+    if (s.randomStart && main.duration > 4) main.currentTime = rand(0, Math.max(0, main.duration - 2));
+    main.muted = s.mute;
+    main.play();
+    main.style.opacity = "1";
+    if (overlay.src || overlay.srcObject) {
+      if (s.randomStart && overlay.duration > 4) overlay.currentTime = rand(0, Math.max(0, overlay.duration - 2));
+      overlay.muted = true;
+      overlay.play();
+      overlay.style.opacity = String(overlayTarget[slot]);
+    }
+    activeSlot = slot;
+    lastMainId = item ? item.id : null;
+    if (old >= 0 && old !== slot) { stopMedia(mains[old]); stopMedia(overlays[old]); }
+    $("empty").classList.add("hidden");
+    setStatus("Reproduzindo · " + (item ? item.name : ""));
+    setButtons();
+    scheduleMove();
+    scheduleScene();
+  }
+
+  function scheduleScene() {
+    clearTimeout(sceneTimer);
+    const s = settings();
+    const [a, b] = ordered(s.clipMin, s.clipMax);
+    sceneTimer = setTimeout(switchScene, rand(a, b) * 1000);
+  }
+  function scheduleMove() {
+    clearTimeout(moveTimer);
+    if (!running || paused || activeSlot < 0) return;
+    applyTransform(mains[activeSlot], true);
+    const ov = overlays[activeSlot];
+    if ((ov.src || ov.srcObject) && Number(ov.style.opacity) > 0) applyTransform(ov, true);
+    const s = settings();
+    const [a, b] = ordered(s.moveMin, s.moveMax);
+    moveTimer = setTimeout(scheduleMove, rand(a, b) * 1000);
+  }
+
+  function start() {
+    if (!playlist.length) return;
+    running = true; paused = false; activeSlot = -1; lastMainId = null;
+    clearInterval(watchdog);
+    watchdog = setInterval(() => {
+      if (!running || paused || activeSlot < 0) return;
+      mains[activeSlot].play().catch(() => {});
+      const ov = overlays[activeSlot];
+      if (ov.src || ov.srcObject) ov.play().catch(() => {});
+    }, 2000);
+    setButtons();
+    switchScene();
+  }
+  function pause() {
+    if (!running) return;
+    paused = true; clearTimeout(sceneTimer); clearTimeout(moveTimer);
+    mains.concat(overlays).forEach((el) => { try { el.pause(); } catch (e) {} });
+    setStatus("Pausado"); setButtons();
+  }
+  function resume() {
+    if (!running) return;
+    paused = false;
+    if (activeSlot >= 0) {
+      mains[activeSlot].play();
+      const ov = overlays[activeSlot];
+      if (ov.src || ov.srcObject) ov.play();
+    } else switchScene();
+    scheduleMove(); scheduleScene();
+    setStatus("Reproduzindo"); setButtons();
+  }
+  function stop() {
+    running = false; paused = false;
+    clearTimeout(sceneTimer); clearTimeout(moveTimer); clearInterval(watchdog);
+    opening = [false, false];
+    mains.concat(overlays).forEach(stopMedia);
+    activeSlot = -1;
+    $("empty").classList.remove("hidden");
+    setStatus("Parado"); setButtons();
+  }
+
+  mains.forEach((el, i) => {
+    el.addEventListener("loadeddata", () => { if (opening[i]) activateSlot(i); });
+    el.addEventListener("ended", () => { if (running && !paused) switchScene(); });
+    el.addEventListener("error", () => { if (running) { setStatus("Vídeo falhou, pulando…"); switchScene(); } });
+  });
+  overlays.forEach((el, i) => {
+    el.addEventListener("loadeddata", () => {
+      if (activeSlot === i && running && !paused) {
+        el.play();
+        el.style.opacity = String(overlayTarget[i]);
+      }
+    });
+  });
+
+  function clearUrls() {
+    urls.forEach((u) => URL.revokeObjectURL(u));
+    urls.length = 0;
+    demoStops.forEach((fn) => fn());
+    demoStops.length = 0;
+  }
+
+  function setFiles(files) {
+    stop();
+    clearUrls();
+    playlist = files.map((file, i) => {
+      const url = URL.createObjectURL(file);
+      urls.push(url);
+      return { id: file.name + "-" + file.size + "-" + i, name: file.name, url };
+    });
+    $("count").textContent = playlist.length
+      ? playlist.length + " " + (playlist.length > 1 ? "materiais" : "material")
+      : "Nenhum vídeo selecionado";
+    setStatus(playlist.length ? "Material pronto. Clique em Começar." : "Selecione os vídeos primeiro");
+    setButtons();
+  }
+
+  function makeDemo(label, hue, seed) {
+    const canvas = document.createElement("canvas");
+    canvas.width = 720; canvas.height = 1280;
+    const ctx = canvas.getContext("2d", { alpha: false });
+    let t = seed * 40;
+    const draw = () => {
+      t += 1;
+      const w = canvas.width, h = canvas.height;
+      const g = ctx.createLinearGradient(0, 0, 0, h);
+      g.addColorStop(0, "hsl(" + hue + " 28% 8%)");
+      g.addColorStop(0.45, "hsl(" + ((hue + 12) % 360) + " 40% 14%)");
+      g.addColorStop(1, "hsl(" + hue + " 22% 6%)");
+      ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+      for (let i = 0; i < 5; i++) {
+        const px = w * (0.2 + 0.15 * i) + Math.sin(t * 0.01 + i) * 40;
+        const py = h * (0.25 + 0.12 * i) + Math.cos(t * 0.008 + i * 1.3) * 60;
+        const r = 90 + i * 36;
+        const orb = ctx.createRadialGradient(px, py, 8, px, py, r);
+        orb.addColorStop(0, "hsla(" + ((hue + i * 18) % 360) + " 80% 62% / 0.55)");
+        orb.addColorStop(1, "hsla(0 0% 0% / 0)");
+        ctx.fillStyle = orb; ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.fillStyle = "rgba(8,8,12,0.35)";
+      ctx.beginPath(); ctx.roundRect(72, h * 0.62, w - 144, 280, 28); ctx.fill();
+      ctx.strokeStyle = "rgba(254,44,85,0.55)"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.roundRect(72, h * 0.62, w - 144, 280, 28); ctx.stroke();
+      ctx.fillStyle = "#fe2c55"; ctx.beginPath(); ctx.roundRect(96, h * 0.62 + 28, 72, 22, 11); ctx.fill();
+      ctx.fillStyle = "#fff"; ctx.font = "700 13px sans-serif"; ctx.fillText("LIVE", 112, h * 0.62 + 44);
+      ctx.fillStyle = "#f5f5f7"; ctx.font = "700 36px sans-serif"; ctx.fillText(label, 96, h * 0.62 + 100);
+      ctx.fillStyle = "#a8a8b3"; ctx.font = "400 18px sans-serif"; ctx.fillText("华流LIVE  ·  material demo", 96, h * 0.62 + 136);
+    };
+    draw();
+    const timer = setInterval(draw, 1000 / 24);
+    const stream = canvas.captureStream(24);
+    demoStops.push(() => { clearInterval(timer); stream.getTracks().forEach((tr) => tr.stop()); });
+    return { id: "demo-" + seed, name: label, stream };
+  }
+
+  function setCapture(on) {
+    document.body.classList.toggle("capture", on);
+    document.title = on ? "PLAYER 华流 · CAPTURA" : "华流LIVE 控制台";
+    $("fab").style.display = on ? "flex" : "none";
+  }
+
+  $("pick").onclick = () => $("file").click();
+  $("file").onchange = (e) => { setFiles([...e.target.files]); e.target.value = ""; };
+  $("start").onclick = start;
+  $("pause").onclick = pause;
+  $("resume").onclick = resume;
+  $("next").onclick = () => { if (running && !paused) switchScene(); };
+  $("stop").onclick = stop;
+  $("hide").onclick = () => setCapture(true);
+  $("capture").onclick = () => setCapture(true);
+  $("fab").onclick = () => setCapture(false);
+  $("demo").onclick = () => {
+    stop(); clearUrls();
+    playlist = [makeDemo("素材 01  ·  seda", 350, 1), makeDemo("素材 02  ·  ouro", 28, 2), makeDemo("素材 03  ·  noite", 210, 3)];
+    $("count").textContent = "3 materiais · demonstração";
+    setStatus("Demo pronta");
+    setButtons();
+    start();
+  };
+  $("overlayChance").oninput = () => { $("chanceLabel").textContent = $("overlayChance").value + "%"; };
+  $("overlayOpacity").oninput = () => { $("opacityLabel").textContent = $("overlayOpacity").value + "%"; };
+  $("mute").onchange = () => { if (activeSlot >= 0) mains[activeSlot].muted = $("mute").checked; };
+
+  $("stageWrap").addEventListener("dragover", (e) => e.preventDefault());
+  $("stageWrap").addEventListener("drop", (e) => {
+    e.preventDefault();
+    const files = [...e.dataTransfer.files].filter((f) => f.type.startsWith("video/"));
+    if (files.length) setFiles(files);
+  });
+
+  window.addEventListener("keydown", (e) => {
+    const tag = (e.target && e.target.tagName) || "";
+    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    if (e.key === "F2") { e.preventDefault(); setCapture(!document.body.classList.contains("capture")); }
+    if (e.key === " " || e.code === "Space") {
+      e.preventDefault();
+      if (paused) resume(); else if (running) pause();
+    }
+    if (e.key === "ArrowRight") { e.preventDefault(); if (running && !paused) switchScene(); }
+    if (e.key === "F11") {
+      e.preventDefault();
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen();
+    }
+    if (e.key === "Escape") {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else setCapture(false);
+    }
+  });
+
+  setButtons();
+})();
+</script>
+</body>
+</html>
